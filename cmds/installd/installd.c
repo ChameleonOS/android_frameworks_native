@@ -16,6 +16,8 @@
 
 #include <sys/capability.h>
 #include <linux/prctl.h>
+#include <selinux/android.h>
+#include <selinux/avc.h>
 
 #include "installd.h"
 
@@ -103,7 +105,8 @@ static int do_rm_user_data(char **arg, char reply[REPLY_MAX])
 
 static int do_mk_user_data(char **arg, char reply[REPLY_MAX])
 {
-    return make_user_data(arg[0], atoi(arg[1]), atoi(arg[2])); /* pkgname, uid, userid */
+    return make_user_data(arg[0], atoi(arg[1]), atoi(arg[2]), arg[3]);
+                             /* pkgname, uid, userid, seinfo */
 }
 
 static int do_rm_user(char **arg, char reply[REPLY_MAX])
@@ -142,7 +145,7 @@ struct cmdinfo cmds[] = {
     { "rmuserdata",           2, do_rm_user_data },
     { "movefiles",            0, do_movefiles },
     { "linklib",              3, do_linklib },
-    { "mkuserdata",           3, do_mk_user_data },
+    { "mkuserdata",           4, do_mk_user_data },
     { "rmuser",               1, do_rm_user },
 };
 
@@ -525,6 +528,7 @@ int main(const int argc, const char *argv[]) {
     struct sockaddr addr;
     socklen_t alen;
     int lsocket, s, count;
+    int selinux_enabled = (is_selinux_enabled() > 0);
 
     ALOGI("installd firing up\n");
 
@@ -535,6 +539,11 @@ int main(const int argc, const char *argv[]) {
 
     if (initialize_directories() < 0) {
         ALOGE("Could not create directories; exiting.\n");
+        exit(1);
+    }
+
+    if (selinux_enabled && selinux_status_open(true) < 0) {
+        ALOGE("Could not open selinux status; exiting.\n");
         exit(1);
     }
 
@@ -576,6 +585,9 @@ int main(const int argc, const char *argv[]) {
                 break;
             }
             buf[count] = 0;
+            if (selinux_enabled && selinux_status_updated() > 0) {
+                selinux_android_seapp_context_reload();
+            }
             if (execute(s, buf)) break;
         }
         ALOGI("closing connection\n");
